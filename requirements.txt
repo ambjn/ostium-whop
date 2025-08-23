@@ -2,3 +2,4 @@ fastapi
 uvicorn
 python-dotenv
 ostium-python-sdk
+eth-account
