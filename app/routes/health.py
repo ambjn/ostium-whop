@@ -5,8 +5,6 @@ from app.services.ostium_service import OstiumService
 
 router = APIRouter(prefix="/health", tags=["health"])
 
-ostium_service = OstiumService()
-
 
 class HealthResponse(BaseModel):
     status: str
@@ -19,6 +17,7 @@ class HealthResponse(BaseModel):
 async def health_check() -> HealthResponse:
     """Check Ostium service health and connectivity"""
     try:
+        ostium_service = OstiumService()
         is_healthy = ostium_service.is_healthy()
         latest_block = ostium_service.get_block_number()
         network_info = ostium_service.get_network_info()
@@ -37,6 +36,7 @@ async def health_check() -> HealthResponse:
 async def rpc_status() -> Dict[str, Any]:
     """Check RPC connection status"""
     try:
+        ostium_service = OstiumService()
         block_number = ostium_service.check_rpc_status()
         return {
             "connected": block_number is not None,
@@ -51,6 +51,7 @@ async def rpc_status() -> Dict[str, Any]:
 async def network_info() -> Dict[str, Any]:
     """Get network configuration information"""
     try:
+        ostium_service = OstiumService()
         return ostium_service.get_network_info()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get network info: {str(e)}")

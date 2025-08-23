@@ -5,8 +5,6 @@ from app.services.ostium_service import OstiumService
 
 router = APIRouter(prefix="/market", tags=["market"])
 
-ostium_service = OstiumService()
-
 
 class PriceResponse(BaseModel):
     price: float
@@ -19,6 +17,7 @@ class PriceResponse(BaseModel):
 async def get_latest_prices() -> List[Dict[str, Any]]:
     """Get latest prices for all trading pairs"""
     try:
+        ostium_service = OstiumService()
         prices = await ostium_service.get_latest_prices()
         if not prices:
             raise HTTPException(status_code=404, detail="No price data available")
@@ -31,6 +30,7 @@ async def get_latest_prices() -> List[Dict[str, Any]]:
 async def get_price(from_currency: str, to_currency: str) -> PriceResponse:
     """Get price for a specific trading pair"""
     try:
+        ostium_service = OstiumService()
         price_data = await ostium_service.get_price(from_currency, to_currency)
         if not price_data:
             raise HTTPException(status_code=404, detail=f"Price not found for {from_currency}/{to_currency}")
@@ -43,6 +43,7 @@ async def get_price(from_currency: str, to_currency: str) -> PriceResponse:
 async def get_trading_pairs() -> List[Dict[str, Any]]:
     """Get available trading pairs information"""
     try:
+        ostium_service = OstiumService()
         pairs = await ostium_service.get_pair_info()
         return pairs
     except Exception as e:
@@ -53,6 +54,7 @@ async def get_trading_pairs() -> List[Dict[str, Any]]:
 async def get_detailed_pairs() -> List[Dict[str, Any]]:
     """Get detailed information about trading pairs"""
     try:
+        ostium_service = OstiumService()
         pairs = await ostium_service.get_formatted_pairs_details()
         return pairs
     except Exception as e:
@@ -63,6 +65,7 @@ async def get_detailed_pairs() -> List[Dict[str, Any]]:
 async def get_market_overview() -> Dict[str, Any]:
     """Get market overview with key metrics"""
     try:
+        ostium_service = OstiumService()
         prices = await ostium_service.get_latest_prices()
         pairs = await ostium_service.get_pair_info()
         
@@ -87,6 +90,7 @@ async def get_market_overview() -> Dict[str, Any]:
 async def get_market_status() -> Dict[str, Any]:
     """Get market status information"""
     try:
+        ostium_service = OstiumService()
         network_info = ostium_service.get_network_info()
         is_healthy = ostium_service.is_healthy()
         
@@ -105,6 +109,7 @@ async def get_market_status() -> Dict[str, Any]:
 async def get_supported_currencies() -> Dict[str, List[str]]:
     """Get list of supported currencies"""
     try:
+        ostium_service = OstiumService()
         pairs = await ostium_service.get_pair_info()
         
         from_currencies = set()

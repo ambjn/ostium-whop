@@ -16,29 +16,35 @@ load_dotenv()
 class OstiumService:
     def __init__(
         self,
+        private_key: Optional[str] = None,
         verbose: bool = True,
         network_config: NetworkConfig = NetworkConfig.testnet(),
     ) -> None:
         self.verbose = verbose
         self.network_config = network_config
         self.logger = logger
-        self.address: str
-        self.private_key: str
+        self.private_key = private_key
+        self.address: Optional[str] = None
         self.rpc_url: str
         self.trader_address: Optional[str] = None
+        self.account: Optional[Account] = None
+        self.sdk: Optional[OstiumSDK] = None
 
-        self._initialize_wallet()
-        self._initialize_sdk()
-
-        self.account = Account.from_key(self.private_key)
-        self.address = self.account.address
+        self._initialize_rpc()
+        
+        if self.private_key:
+            self._initialize_wallet()
+            self._initialize_sdk()
+        else:
+            self.logger.info("Initialized without private key - wallet operations not available")
 
     def _initialize_wallet(self) -> None:
-        """Initialize wallet credentials from environment variables."""
-        self.private_key = os.environ.get("PRIVATE_KEY")
-        
+        """Initialize wallet from private key."""
         if not self.private_key:
-            raise ValueError("Missing PRIVATE_KEY environment variable")
+            raise ValueError("Private key is required for wallet operations")
+            
+        self.account = Account.from_key(self.private_key)
+        self.address = self.account.address
             
         # Optional trader address for delegation
         self.trader_address = os.environ.get("TRADER_ADDRESS")
@@ -58,11 +64,16 @@ class OstiumService:
         except Exception as e:
             self.logger.warning("Failed to apply SignedTransaction patch: %s", e)
 
-    def _initialize_sdk(self) -> None:
+    def _initialize_rpc(self) -> None:
+        """Initialize RPC URL from environment."""
         self.rpc_url = os.environ.get("RPC_URL")
-
         if not self.rpc_url:
             raise ValueError("Missing RPC_URL environment variable")
+
+    def _initialize_sdk(self) -> None:
+        """Initialize Ostium SDK with private key."""
+        if not self.private_key:
+            raise ValueError("Private key is required for SDK initialization")
 
         try:
             self._patch_signed_transaction()
@@ -81,6 +92,16 @@ class OstiumService:
             self.logger.error("Failed to initialize Ostium SDK: %s", e)
             raise
 
+    def _require_sdk(self) -> None:
+        """Ensure SDK is initialized for wallet operations."""
+        if not self.sdk:
+            raise ValueError("SDK not initialized - private key required for this operation")
+    
+    def _require_wallet(self) -> None:
+        """Ensure wallet is initialized for wallet operations."""
+        if not self.account or not self.address:
+            raise ValueError("Wallet not initialized - private key required for this operation")
+
     def check_rpc_status(self) -> Optional[int]:
         try:
             block = self.get_block_number()
@@ -93,6 +114,8 @@ class OstiumService:
 
     def get_block_number(self) -> Optional[int]:
         try:
+            if not self.sdk:
+                return None
             return self.sdk.w3.eth.get_block_number()
         except Exception as e:
             self.logger.error("Failed to get block number: %s", e)
@@ -110,6 +133,7 @@ class OstiumService:
             return {"success": False, "error": "Address is required"}
 
         try:
+            self._require_sdk()
             if self.sdk.faucet.can_request_tokens(address):
                 amount = self.sdk.faucet.get_token_amount()
                 self.logger.info("Eligible to receive %s USDC", amount / 1e6)
@@ -147,6 +171,7 @@ class OstiumService:
             return {"eth": 0.0, "usdc": 0.0}
 
         try:
+            self._require_sdk()
             eth_balance, usdc_balance = self.sdk.balance.get_balance(
                 address=address, refresh=refresh
             )
@@ -157,6 +182,10 @@ class OstiumService:
 
     async def get_latest_prices(self) -> Optional[List[Dict[str, Any]]]:
         try:
+            if not self.sdk:
+                self.logger.warning("SDK not initialized - attempting to create temporary SDK")
+                temp_service = OstiumService(private_key="0x" + "0" * 64)
+                return await temp_service.get_latest_prices()
             return await self.sdk.price.get_latest_prices()
         except Exception as e:
             self.logger.error("Failed to get latest prices: %s", e)
@@ -170,6 +199,11 @@ class OstiumService:
             return None
 
         try:
+            if not self.sdk:
+                self.logger.warning("SDK not initialized - attempting to create temporary SDK")
+                temp_service = OstiumService(private_key="0x" + "0" * 64)
+                return await temp_service.get_price(from_currency, to_currency)
+            
             price, is_open, timestamp = await self.sdk.price.get_price(
                 from_currency, to_currency
             )
@@ -187,6 +221,10 @@ class OstiumService:
 
     async def get_pair_info(self) -> List[Dict[str, Any]]:
         try:
+            if not self.sdk:
+                self.logger.warning("SDK not initialized - attempting to create temporary SDK")
+                temp_service = OstiumService(private_key="0x" + "0" * 64)
+                return await temp_service.get_pair_info()
             return await self.sdk.subgraph.get_pairs()
         except Exception as e:
             self.logger.error("Failed to get pair info: %s", e)
@@ -194,6 +232,10 @@ class OstiumService:
 
     async def get_formatted_pairs_details(self) -> List[Dict[str, Any]]:
         try:
+            if not self.sdk:
+                self.logger.warning("SDK not initialized - attempting to create temporary SDK")
+                temp_service = OstiumService(private_key="0x" + "0" * 64)
+                return await temp_service.get_formatted_pairs_details()
             return await self.sdk.get_formatted_pairs_details()
         except Exception as e:
             self.logger.error("Failed to get formatted pair details: %s", e)
@@ -718,9 +760,10 @@ class OstiumService:
                 else "mainnet"
             ),
             "rpc_url": self.rpc_url,
-            "address": self.address,
+            "address": self.address or "Not initialized",
             "delegation_enabled": self.trader_address is not None,
             "trader_address": self.trader_address,
+            "wallet_initialized": self.address is not None,
         }
 
     async def trade_data_points(

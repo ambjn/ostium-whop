@@ -3,10 +3,9 @@ from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
 from app.services.ostium_service import OstiumService
 from app.utils.order_type import ORDER_TYPE
+from app.state import get_current_private_key, state_manager
 
 router = APIRouter(prefix="/trading", tags=["trading"])
-
-ostium_service = OstiumService()
 
 
 class PlaceOrderRequest(BaseModel):
@@ -65,6 +64,8 @@ class FaucetRequest(BaseModel):
 async def place_order(request: PlaceOrderRequest) -> Dict[str, Any]:
     """Place a new trading order"""
     try:
+        private_key = get_current_private_key()
+        ostium_service = OstiumService(private_key=private_key)
         order_type_enum = ORDER_TYPE.LIMIT if request.order_type.upper() == "LIMIT" else ORDER_TYPE.MARKET
         
         result = await ostium_service.place_order(
@@ -89,6 +90,8 @@ async def place_order(request: PlaceOrderRequest) -> Dict[str, Any]:
 async def close_trade(request: CloseTradeRequest) -> Dict[str, Any]:
     """Close an existing trade"""
     try:
+        private_key = get_current_private_key()
+        ostium_service = OstiumService(private_key=private_key)
         result = await ostium_service.close_trade(
             pair_id=request.pair_id,
             trade_index=request.trade_index,
@@ -104,6 +107,8 @@ async def close_trade(request: CloseTradeRequest) -> Dict[str, Any]:
 async def add_collateral(request: AddCollateralRequest) -> Dict[str, Any]:
     """Add collateral to an existing trade"""
     try:
+        private_key = get_current_private_key()
+        ostium_service = OstiumService(private_key=private_key)
         result = await ostium_service.add_collateral(
             pairID=request.pair_id,
             index=request.index,
@@ -119,6 +124,8 @@ async def add_collateral(request: AddCollateralRequest) -> Dict[str, Any]:
 async def remove_collateral(request: RemoveCollateralRequest) -> Dict[str, Any]:
     """Remove collateral from an existing trade"""
     try:
+        private_key = get_current_private_key()
+        ostium_service = OstiumService(private_key=private_key)
         result = await ostium_service.remove_collateral(
             pair_id=request.pair_id,
             trade_index=request.trade_index,
@@ -133,6 +140,8 @@ async def remove_collateral(request: RemoveCollateralRequest) -> Dict[str, Any]:
 async def update_stop_loss(request: UpdateStopLossRequest) -> Dict[str, bool]:
     """Update stop loss for an existing trade"""
     try:
+        private_key = get_current_private_key()
+        ostium_service = OstiumService(private_key=private_key)
         result = ostium_service.update_stop_loss(
             pair_id=request.pair_id,
             index=request.index,
@@ -148,6 +157,8 @@ async def update_stop_loss(request: UpdateStopLossRequest) -> Dict[str, bool]:
 async def update_take_profit(request: UpdateTakeProfitRequest) -> Dict[str, bool]:
     """Update take profit for an existing trade"""
     try:
+        private_key = get_current_private_key()
+        ostium_service = OstiumService(private_key=private_key)
         result = ostium_service.update_take_profit(
             pair_id=request.pair_id,
             trade_index=request.trade_index,
@@ -163,6 +174,8 @@ async def update_take_profit(request: UpdateTakeProfitRequest) -> Dict[str, bool
 async def get_positions(address: Optional[str] = None) -> List[Dict[str, Any]]:
     """Get open trading positions"""
     try:
+        private_key = get_current_private_key()
+        ostium_service = OstiumService(private_key=private_key)
         positions = await ostium_service.get_open_positions(address)
         return positions
     except Exception as e:
@@ -173,6 +186,8 @@ async def get_positions(address: Optional[str] = None) -> List[Dict[str, Any]]:
 async def get_trade_history(address: Optional[str] = None, limit: int = 10) -> List[Dict[str, Any]]:
     """Get recent trade history"""
     try:
+        private_key = get_current_private_key()
+        ostium_service = OstiumService(private_key=private_key)
         history = await ostium_service.get_recent_history(address, limit)
         return history
     except Exception as e:
@@ -183,6 +198,8 @@ async def get_trade_history(address: Optional[str] = None, limit: int = 10) -> L
 async def track_order(order_id: str) -> Dict[str, Any]:
     """Track an order by ID"""
     try:
+        private_key = get_current_private_key()
+        ostium_service = OstiumService(private_key=private_key)
         result = await ostium_service.track_order(order_id)
         if result is None:
             raise HTTPException(status_code=404, detail="Order not found")
@@ -195,6 +212,8 @@ async def track_order(order_id: str) -> Dict[str, Any]:
 async def get_balances(address: Optional[str] = None, refresh: bool = True) -> Dict[str, float]:
     """Get wallet balances (ETH and USDC)"""
     try:
+        private_key = get_current_private_key()
+        ostium_service = OstiumService(private_key=private_key)
         target_address = address or ostium_service.address
         balances = await ostium_service.get_balances(target_address, refresh)
         return balances
@@ -206,6 +225,8 @@ async def get_balances(address: Optional[str] = None, refresh: bool = True) -> D
 async def get_faucet_usdc(request: FaucetRequest) -> Dict[str, Any]:
     """Request USDC from testnet faucet"""
     try:
+        private_key = get_current_private_key()
+        ostium_service = OstiumService(private_key=private_key)
         result = await ostium_service.get_faucet_usdc(request.address)
         return result
     except Exception as e:
@@ -216,6 +237,8 @@ async def get_faucet_usdc(request: FaucetRequest) -> Dict[str, Any]:
 async def set_slippage(slippage_percentage: float) -> Dict[str, str]:
     """Set slippage percentage for trades"""
     try:
+        private_key = get_current_private_key()
+        ostium_service = OstiumService(private_key=private_key)
         ostium_service.set_slippage_percentage(slippage_percentage)
         return {"message": f"Slippage percentage set to {slippage_percentage}%"}
     except Exception as e:
