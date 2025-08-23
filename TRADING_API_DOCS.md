@@ -21,15 +21,14 @@ The Trading API provides comprehensive endpoints for cryptocurrency and forex tr
 ## Wallet Management
 
 ### Create New Wallet
-**POST** `/wallet/create`
+**GET** `/wallet/create`
 
-Creates a new wallet with a random private key and stores it in state management.
+Generates a new wallet with a random private key and stores it securely in state management.
 
 **Response:**
 ```json
 {
-  "address": "0x742d35Cc6634C0532925a3b8D238D2a8a8D8fF7C",
-  "private_key": "0x1234567890abcdef..."
+  "address": "0x742d35Cc6634C0532925a3b8D238D2a8a8D8fF7C"
 }
 ```
 
@@ -431,7 +430,7 @@ All endpoints return appropriate HTTP status codes and error messages:
 
 ```bash
 # 1. Create wallet
-curl -X POST "http://localhost:8000/wallet/create"
+curl -X GET "http://localhost:8000/wallet/create"
 
 # 2. Check status
 curl -X GET "http://localhost:8000/wallet/status"

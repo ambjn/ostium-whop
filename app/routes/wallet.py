@@ -9,14 +9,13 @@ router = APIRouter(prefix="/wallet", tags=["wallet"])
 
 class CreateWalletResponse(BaseModel):
     address: str
-    private_key: str
 
 
 class PrivateKeyRequest(BaseModel):
     private_key: str
 
 
-@router.post("/create", response_model=CreateWalletResponse)
+@router.get("/create", response_model=CreateWalletResponse)
 async def create_wallet() -> CreateWalletResponse:
     """Create a new wallet with random private key and store in state"""
     try:
@@ -28,10 +27,9 @@ async def create_wallet() -> CreateWalletResponse:
             address=wallet_data["address"]
         )
         
-        # Return only address and private_key (don't expose private key in response)
+        # Return only address (private key stored securely in state)
         return CreateWalletResponse(
-            address=wallet_data["address"],
-            private_key=wallet_data["private_key"]
+            address=wallet_data["address"]
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create wallet: {str(e)}")
