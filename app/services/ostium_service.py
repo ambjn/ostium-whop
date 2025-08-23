@@ -19,7 +19,7 @@ class OstiumService:
         self,
         private_key: Optional[str] = None,
         verbose: bool = True,
-        network_config: NetworkConfig = NetworkConfig.testnet(),
+        network_config: NetworkConfig = NetworkConfig.mainnet(),
     ) -> None:
         self.verbose = verbose
         self.network_config = network_config
@@ -45,26 +45,26 @@ class OstiumService:
     def _get_wallet_from_state_or_env(self) -> bool:
         """Get wallet from state manager, provided private_key, or environment."""
         # Priority order: 1. State manager, 2. Provided private_key, 3. Environment
-        
+
         # First check if wallet exists in state manager
         if state_manager.is_wallet_initialized():
             self.private_key = state_manager.get_private_key()
             self.address = state_manager.get_address()
             self.logger.info("Using wallet from state manager: %s", self.address)
             return True
-        
+
         # Then check provided private_key parameter
         if self.private_key:
             self.logger.info("Using provided private key")
             return True
-            
+
         # Finally fallback to environment variable
         env_private_key = os.environ.get("PRIVATE_KEY")
         if env_private_key:
             self.private_key = env_private_key
             self.logger.info("Using private key from environment")
             return True
-            
+
         return False
 
     def _initialize_wallet(self) -> None:
@@ -852,7 +852,8 @@ class OstiumService:
             "address": self.address or "Not initialized",
             "delegation_enabled": self.trader_address is not None,
             "trader_address": self.trader_address,
-            "wallet_initialized": state_manager.is_wallet_initialized() or self.address is not None,
+            "wallet_initialized": state_manager.is_wallet_initialized()
+            or self.address is not None,
         }
 
     async def trade_data_points(
