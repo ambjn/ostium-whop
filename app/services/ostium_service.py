@@ -1,87 +1,94 @@
 import logging
 import os
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
 from eth_account import Account
 from ostium_python_sdk import NetworkConfig, OstiumSDK
 
 from app.utils.order_type import ORDER_TYPE
-from app.state import state_manager
+from app.services.wallet_service import wallet_service
 
 logger = logging.getLogger(__name__)
 load_dotenv()
 
 
 class OstiumService:
+    # Class-level cache for SDKs by user_id
+    _sdk_cache: Dict[str, OstiumSDK] = {}
+    _address_cache: Dict[str, str] = {}
+    
     def __init__(
         self,
         private_key: Optional[str] = None,
+        user_id: Optional[str] = None,
         verbose: bool = True,
         network_config: NetworkConfig = NetworkConfig.mainnet(),
     ) -> None:
         self.verbose = verbose
         self.network_config = network_config
         self.logger = logger
-        self.private_key = private_key
-        self.address: Optional[str] = None
         self.rpc_url: str
         self.trader_address: Optional[str] = None
-        self.account: Optional[Account] = None
-        self.sdk: Optional[OstiumSDK] = None
 
         self._initialize_rpc()
 
-        # Check state manager first for wallet, then fallback to provided private_key or env
-        if self._get_wallet_from_state_or_env():
-            self._initialize_wallet()
-            self._initialize_sdk()
-        else:
-            self.logger.info(
-                "Initialized without private key - wallet operations not available"
+    def _get_or_create_sdk(self, user_id: str) -> Tuple[OstiumSDK, str]:
+        """Get cached SDK or create new one for user_id."""
+        # Check cache first
+        if user_id in self._sdk_cache:
+            sdk = self._sdk_cache[user_id]
+            address = self._address_cache[user_id]
+            self.logger.debug("Using cached SDK for user: %s", user_id)
+            return sdk, address
+            
+        # Get private key from wallet service
+        try:
+            private_key = wallet_service.export_wallet(user_id, "ETH")
+            self.logger.info("Retrieved private key from wallet service for user: %s", user_id)
+        except Exception as e:
+            self.logger.error("Failed to get private key from wallet service for user %s: %s", user_id, e)
+            raise ValueError(f"Failed to get private key for user {user_id}: {str(e)}")
+        
+        # Create account and get address
+        account = Account.from_key(private_key)
+        address = account.address
+        
+        # Initialize SDK
+        try:
+            self._patch_signed_transaction()
+            
+            sdk = OstiumSDK(
+                network=self.network_config,
+                private_key=private_key,
+                rpc_url=self.rpc_url,
+                verbose=self.verbose,
             )
+            
+            # Cache the SDK and address
+            self._sdk_cache[user_id] = sdk
+            self._address_cache[user_id] = address
+            
+            self.logger.info("Created and cached SDK for user: %s, address: %s", user_id, address)
+            
+            if self.verbose:
+                self._check_rpc_status_for_sdk(sdk)
+                
+            return sdk, address
+            
+        except Exception as e:
+            self.logger.error("Failed to initialize SDK for user %s: %s", user_id, e)
+            raise ValueError(f"Failed to initialize SDK for user {user_id}: {str(e)}")
 
-    def _get_wallet_from_state_or_env(self) -> bool:
-        """Get wallet from state manager, provided private_key, or environment."""
-        # Priority order: 1. State manager, 2. Provided private_key, 3. Environment
-
-        # First check if wallet exists in state manager
-        if state_manager.is_wallet_initialized():
-            self.private_key = state_manager.get_private_key()
-            self.address = state_manager.get_address()
-            self.logger.info("Using wallet from state manager: %s", self.address)
-            return True
-
-        # Then check provided private_key parameter
-        if self.private_key:
-            self.logger.info("Using provided private key")
-            return True
-
-        # Finally fallback to environment variable
-        env_private_key = os.environ.get("PRIVATE_KEY")
-        if env_private_key:
-            self.private_key = env_private_key
-            self.logger.info("Using private key from environment")
-            return True
-
-        return False
-
-    def _initialize_wallet(self) -> None:
-        """Initialize wallet from private key."""
-        if not self.private_key:
-            raise ValueError("Private key is required for wallet operations")
-
-        self.account = Account.from_key(self.private_key)
-        self.address = self.account.address
-
-        # Store in state manager if not already there
-        if not state_manager.is_wallet_initialized():
-            state_manager.set_wallet(self.private_key, self.address)
-            self.logger.info("Wallet stored in state manager: %s", self.address)
-
-        # Optional trader address for delegation
-        self.trader_address = os.environ.get("TRADER_ADDRESS")
+    def _check_rpc_status_for_sdk(self, sdk: OstiumSDK) -> None:
+        """Check RPC status for a specific SDK."""
+        try:
+            block = sdk.w3.eth.get_block_number()
+            if block is not None:
+                self.logger.info("📦 Latest block: %s", block)
+        except Exception as e:
+            self.logger.error("❌ RPC check failed: %s", e)
 
     def _patch_signed_transaction(self) -> None:
         """Monkey patch SignedTransaction to add raw_transaction property."""
@@ -105,45 +112,10 @@ class OstiumService:
         if not self.rpc_url:
             raise ValueError("Missing RPC_URL environment variable")
 
-    def _initialize_sdk(self) -> None:
-        """Initialize Ostium SDK with private key."""
-        if not self.private_key:
-            raise ValueError("Private key is required for SDK initialization")
 
+    def check_rpc_status(self, user_id: str) -> Optional[int]:
         try:
-            self._patch_signed_transaction()
-
-            self.sdk = OstiumSDK(
-                network=self.network_config,
-                private_key=self.private_key,
-                rpc_url=self.rpc_url,
-                verbose=self.verbose,
-            )
-
-            if self.verbose:
-                self.check_rpc_status()
-
-        except Exception as e:
-            self.logger.error("Failed to initialize Ostium SDK: %s", e)
-            raise
-
-    def _require_sdk(self) -> None:
-        """Ensure SDK is initialized for wallet operations."""
-        if not self.sdk:
-            raise ValueError(
-                "SDK not initialized - private key required for this operation"
-            )
-
-    def _require_wallet(self) -> None:
-        """Ensure wallet is initialized for wallet operations."""
-        if not self.account or not self.address:
-            raise ValueError(
-                "Wallet not initialized - private key required for this operation"
-            )
-
-    def check_rpc_status(self) -> Optional[int]:
-        try:
-            block = self.get_block_number()
+            block = self.get_block_number(user_id)
             if block is not None and self.verbose:
                 self.logger.info("📦 Latest block: %s", block)
             return block
@@ -151,33 +123,32 @@ class OstiumService:
             self.logger.error("❌ RPC check failed: %s", e)
             return None
 
-    def get_block_number(self) -> Optional[int]:
+    def get_block_number(self, user_id: str) -> Optional[int]:
         try:
-            if not self.sdk:
-                return None
-            return self.sdk.w3.eth.get_block_number()
+            sdk, _ = self._get_or_create_sdk(user_id)
+            return sdk.w3.eth.get_block_number()
         except Exception as e:
             self.logger.error("Failed to get block number: %s", e)
             return None
 
-    def is_healthy(self) -> bool:
+    def is_healthy(self, user_id: str) -> bool:
         try:
-            return self.check_rpc_status() is not None
+            return self.check_rpc_status(user_id) is not None
         except Exception as e:
             self.logger.error("Health check failed: %s", e)
             return False
 
-    async def get_faucet_usdc(self, address: str) -> Dict[str, Any]:
+    async def get_faucet_usdc(self, user_id: str, address: str) -> Dict[str, Any]:
         if not address:
             return {"success": False, "error": "Address is required"}
 
         try:
-            self._require_sdk()
-            if self.sdk.faucet.can_request_tokens(address):
-                amount = self.sdk.faucet.get_token_amount()
+            sdk, _ = self._get_or_create_sdk(user_id)
+            if sdk.faucet.can_request_tokens(address):
+                amount = sdk.faucet.get_token_amount()
                 self.logger.info("Eligible to receive %s USDC", amount / 1e6)
 
-                receipt = self.sdk.faucet.request_tokens()
+                receipt = sdk.faucet.request_tokens()
                 self.logger.info("Tokens requested successfully")
                 self.logger.info(
                     "Transaction hash: %s", receipt["transactionHash"].hex()
@@ -189,7 +160,7 @@ class OstiumService:
                     "amount": amount / 1e6,
                 }
             else:
-                next_time = self.sdk.faucet.get_next_request_time(address)
+                next_time = sdk.faucet.get_next_request_time(address)
                 next_time_str = datetime.fromtimestamp(next_time).strftime(
                     "%Y-%m-%d %H:%M:%S"
                 )
@@ -203,15 +174,15 @@ class OstiumService:
             return {"success": False, "error": str(e)}
 
     async def get_balances(
-        self, address: str, refresh: bool = True
+        self, user_id: str, address: str, refresh: bool = True
     ) -> Dict[str, float]:
         if not address:
             self.logger.error("Address is required for balance check")
             return {"eth": 0.0, "usdc": 0.0}
 
         try:
-            self._require_sdk()
-            eth_balance, usdc_balance = self.sdk.balance.get_balance(
+            sdk, _ = self._get_or_create_sdk(user_id)
+            eth_balance, usdc_balance = sdk.balance.get_balance(
                 address=address, refresh=refresh
             )
             return {"eth": eth_balance, "usdc": usdc_balance}
@@ -219,35 +190,24 @@ class OstiumService:
             self.logger.error("Failed to get balances for %s: %s", address, e)
             return {"eth": 0.0, "usdc": 0.0}
 
-    async def get_latest_prices(self) -> Optional[List[Dict[str, Any]]]:
+    async def get_latest_prices(self, user_id: str) -> Optional[List[Dict[str, Any]]]:
         try:
-            if not self.sdk:
-                self.logger.warning(
-                    "SDK not initialized - attempting to create temporary SDK"
-                )
-                temp_service = OstiumService(private_key="0x" + "0" * 64)
-                return await temp_service.get_latest_prices()
-            return await self.sdk.price.get_latest_prices()
+            sdk, _ = self._get_or_create_sdk(user_id)
+            return await sdk.price.get_latest_prices()
         except Exception as e:
             self.logger.error("Failed to get latest prices: %s", e)
             return None
 
     async def get_price(
-        self, from_currency: str, to_currency: str
+        self, user_id: str, from_currency: str, to_currency: str
     ) -> Optional[Dict[str, Any]]:
         if not from_currency or not to_currency:
             self.logger.error("Both from_currency and to_currency are required")
             return None
 
         try:
-            if not self.sdk:
-                self.logger.warning(
-                    "SDK not initialized - attempting to create temporary SDK"
-                )
-                temp_service = OstiumService(private_key="0x" + "0" * 64)
-                return await temp_service.get_price(from_currency, to_currency)
-
-            price, is_open, timestamp = await self.sdk.price.get_price(
+            sdk, _ = self._get_or_create_sdk(user_id)
+            price, is_open, timestamp = await sdk.price.get_price(
                 from_currency, to_currency
             )
             return {
@@ -262,41 +222,33 @@ class OstiumService:
             )
             return None
 
-    async def get_pair_info(self) -> List[Dict[str, Any]]:
+    async def get_pair_info(self, user_id: str) -> List[Dict[str, Any]]:
         try:
-            if not self.sdk:
-                self.logger.warning(
-                    "SDK not initialized - attempting to create temporary SDK"
-                )
-                temp_service = OstiumService(private_key="0x" + "0" * 64)
-                return await temp_service.get_pair_info()
-            return await self.sdk.subgraph.get_pairs()
+            sdk, _ = self._get_or_create_sdk(user_id)
+            return await sdk.subgraph.get_pairs()
         except Exception as e:
             self.logger.error("Failed to get pair info: %s", e)
             return []
 
-    async def get_formatted_pairs_details(self) -> List[Dict[str, Any]]:
+    async def get_formatted_pairs_details(self, user_id: str) -> List[Dict[str, Any]]:
         try:
-            if not self.sdk:
-                self.logger.warning(
-                    "SDK not initialized - attempting to create temporary SDK"
-                )
-                temp_service = OstiumService(private_key="0x" + "0" * 64)
-                return await temp_service.get_formatted_pairs_details()
-            return await self.sdk.get_formatted_pairs_details()
+            sdk, _ = self._get_or_create_sdk(user_id)
+            return await sdk.get_formatted_pairs_details()
         except Exception as e:
             self.logger.error("Failed to get formatted pair details: %s", e)
             return []
 
-    def set_slippage_percentage(self, slippage_percentage: float) -> None:
+    def set_slippage_percentage(self, user_id: str, slippage_percentage: float) -> None:
         if slippage_percentage < 0 or slippage_percentage > 100:
             self.logger.warning("Slippage percentage should be between 0 and 100")
 
-        self.sdk.ostium.set_slippage_percentage(slippage_percentage)
+        sdk, _ = self._get_or_create_sdk(user_id)
+        sdk.ostium.set_slippage_percentage(slippage_percentage)
         self.logger.info("Slippage percentage set to: %.2f%%", slippage_percentage)
 
     async def place_order(
         self,
+        user_id: str,
         price_from_currency: str,
         price_to_currency: str,
         collateral: float,
@@ -344,7 +296,8 @@ class OstiumService:
             self.logger.info("Using delegated trading for: %s", trade_params["trader"])
 
         try:
-            latest_price, _, _ = await self.sdk.price.get_price(
+            sdk, _ = self._get_or_create_sdk(user_id)
+            latest_price, _, _ = await sdk.price.get_price(
                 price_from_currency, price_to_currency
             )
 
@@ -361,7 +314,7 @@ class OstiumService:
                 else latest_price
             )
 
-            trade_result = self.sdk.ostium.perform_trade(
+            trade_result = sdk.ostium.perform_trade(
                 trade_params, at_price=execution_price
             )
 
@@ -374,6 +327,7 @@ class OstiumService:
             self.logger.info("Order ID: %s", order_id)
 
             trade_summary = await self.trade_data_points(
+                user_id=user_id,
                 from_currency=price_from_currency,
                 to_currency=price_to_currency,
                 collateral=collateral,
@@ -395,13 +349,14 @@ class OstiumService:
             self.logger.error("Failed to place order: %s", e)
             return {"success": False, "error": str(e)}
 
-    async def track_order(self, order_id: str) -> Optional[Dict[str, Any]]:
+    async def track_order(self, user_id: str, order_id: str) -> Optional[Dict[str, Any]]:
         if not order_id:
             self.logger.error("Order ID is required for tracking")
             return None
 
         try:
-            order_status = await self.sdk.subgraph.get_orders(order_id)
+            sdk, _ = self._get_or_create_sdk(user_id)
+            order_status = await sdk.subgraph.get_orders(order_id)
             self.logger.info("Order %s status retrieved", order_id)
             return order_status
         except Exception as e:
@@ -409,16 +364,18 @@ class OstiumService:
             return None
 
     async def get_recent_history(
-        self, address: Optional[str] = None, limit: int = 10
+        self, user_id: str, address: Optional[str] = None, limit: int = 10
     ) -> List[Dict[str, Any]]:
-        target_address = address or self.address
+        _, user_address = self._get_or_create_sdk(user_id)
+        target_address = address or user_address
 
         if limit <= 0:
             self.logger.warning("Limit must be positive, using default of 10")
             limit = 10
 
         try:
-            return await self.sdk.subgraph.get_recent_history(target_address, limit)
+            sdk, _ = self._get_or_create_sdk(user_id)
+            return await sdk.subgraph.get_recent_history(target_address, limit)
         except Exception as e:
             self.logger.error(
                 "Failed to get trade history for %s: %s", target_address, e
@@ -426,12 +383,13 @@ class OstiumService:
             return []
 
     async def get_open_positions(
-        self, address: Optional[str] = None
+        self, user_id: str, address: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        target_address = address or self.address
+        sdk, user_address = self._get_or_create_sdk(user_id)
+        target_address = address or user_address
 
         try:
-            trades = await self.sdk.subgraph.get_open_trades(target_address)
+            trades = await sdk.subgraph.get_open_trades(target_address)
             return trades
         except Exception as e:
             self.logger.error(
@@ -450,7 +408,7 @@ class OstiumService:
             return {"success": False, "error": "Trade ID is required"}
 
         try:
-            positions = await self.get_open_positions()
+            positions = await self.get_open_positions(user_id)
             position_exists = False
             actual_pair_id = None
             actual_trade_index = None
@@ -516,7 +474,8 @@ class OstiumService:
                 close_percentage_uint16,
             )
 
-            close_result = self.sdk.ostium.close_trade(
+            sdk, _ = self._get_or_create_sdk(user_id)
+            close_result = sdk.ostium.close_trade(
                 pair_id_uint16, trade_index_uint8, close_percentage_uint16
             )
             receipt = close_result["receipt"]
@@ -531,8 +490,8 @@ class OstiumService:
 
             self.logger.info("Tracking order status...")
 
-            result = await self.sdk.ostium.track_order_and_trade(
-                self.sdk.subgraph, order_id
+            result = await sdk.ostium.track_order_and_trade(
+                sdk.subgraph, order_id
             )
             if result and result.get("order"):
                 order = result["order"]
@@ -585,6 +544,7 @@ class OstiumService:
 
     async def add_collateral(
         self,
+        user_id: str,
         pairID: Any,
         index: Any,
         collateral: Any,
@@ -601,7 +561,8 @@ class OstiumService:
                 "Adding %.2f USDC collateral to trade: %s", collateral, pairID
             )
 
-            result = self.sdk.ostium.add_collateral(
+            sdk, _ = self._get_or_create_sdk(user_id)
+            result = sdk.ostium.add_collateral(
                 pairID=pairID,
                 index=index,
                 collateral=collateral,
@@ -623,7 +584,7 @@ class OstiumService:
             return {"success": False, "error": str(e)}
 
     async def remove_collateral(
-        self, pair_id: Any, trade_index: Any, remove_amount: Any
+        self, user_id: str, pair_id: Any, trade_index: Any, remove_amount: Any
     ):
         if not pair_id:
             return {"success": False, "error": "Trade ID is required"}
@@ -636,7 +597,8 @@ class OstiumService:
                 "Removing %.2f USDC collateral from trade: %s", remove_amount, pair_id
             )
 
-            result = await self.sdk.ostium.remove_collateral(
+            sdk, _ = self._get_or_create_sdk(user_id)
+            result = await sdk.ostium.remove_collateral(
                 pair_id=pair_id, trade_index=trade_index, remove_amount=remove_amount
             )
             receipt = result["receipt"]
@@ -784,14 +746,16 @@ class OstiumService:
 
     def update_stop_loss(
         self,
+        user_id: str,
         pair_id,
         index,
         stop_loss_price: float,
         trader_address: Optional[str] = None,
     ) -> bool:
         try:
-            address = trader_address or self.trader_address or self.address
-            return self.sdk.ostium.update_sl(
+            sdk, user_address = self._get_or_create_sdk(user_id)
+            address = trader_address or self.trader_address or user_address
+            return sdk.ostium.update_sl(
                 pairID=pair_id,
                 index=index,
                 sl=stop_loss_price,
@@ -803,14 +767,16 @@ class OstiumService:
 
     def update_take_profit(
         self,
+        user_id: str,
         pair_id,
         trade_index,
         take_profit_price: float,
         trader_address: Optional[str] = None,
     ) -> bool:
         try:
-            address = trader_address or self.trader_address or self.address
-            return self.sdk.ostium.update_tp(
+            sdk, user_address = self._get_or_create_sdk(user_id)
+            address = trader_address or self.trader_address or user_address
+            return sdk.ostium.update_tp(
                 pair_id=pair_id,
                 trade_index=trade_index,
                 tp_price=take_profit_price,
@@ -852,8 +818,7 @@ class OstiumService:
             "address": self.address or "Not initialized",
             "delegation_enabled": self.trader_address is not None,
             "trader_address": self.trader_address,
-            "wallet_initialized": state_manager.is_wallet_initialized()
-            or self.address is not None,
+            "wallet_initialized": self.address is not None,
         }
 
     async def trade_data_points(

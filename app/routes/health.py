@@ -21,12 +21,12 @@ async def health_check() -> HealthResponse:
         is_healthy = ostium_service.is_healthy()
         latest_block = ostium_service.get_block_number()
         network_info = ostium_service.get_network_info()
-        
+
         return HealthResponse(
             status="healthy" if is_healthy else "unhealthy",
             rpc_connected=is_healthy,
             latest_block=latest_block,
-            network_info=network_info
+            network_info=network_info,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")
@@ -41,7 +41,7 @@ async def rpc_status() -> Dict[str, Any]:
         return {
             "connected": block_number is not None,
             "latest_block": block_number,
-            "rpc_url": ostium_service.rpc_url
+            "rpc_url": ostium_service.rpc_url,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"RPC check failed: {str(e)}")
@@ -54,4 +54,6 @@ async def network_info() -> Dict[str, Any]:
         ostium_service = OstiumService()
         return ostium_service.get_network_info()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get network info: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get network info: {str(e)}"
+        )

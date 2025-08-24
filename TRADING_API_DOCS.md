@@ -2,81 +2,19 @@
 
 ## Overview
 
-The Trading API provides comprehensive endpoints for cryptocurrency and forex trading on the Ostium platform. The API follows a state-managed workflow where you must create a wallet first before performing any trading operations.
+The Trading API provides comprehensive endpoints for cryptocurrency and forex trading on the Ostium platform. The API requires a private key to be configured via environment variables for trading operations.
 
-## Authentication & Workflow
+## Authentication & Configuration
 
-### Required Workflow
-1. **Create Wallet**: Call `/wallet/create` to initialize a wallet
-2. **Trade**: Use any trading endpoint - private key is automatically managed
+### Required Setup
+1. **Configure Private Key**: Set `PRIVATE_KEY` environment variable
+2. **Trade**: Use trading endpoints - private key is automatically used from environment
 3. **Monitor**: Check positions, balances, and trade history
 
-### State Management
-- Private keys are stored in memory state management
-- No need to pass private keys in request bodies
-- Wallet must be initialized before any trading operations
-
----
-
-## Wallet Management
-
-### Create New Wallet
-**GET** `/wallet/create`
-
-Generates a new wallet with a random private key and stores it securely in state management.
-
-**Response:**
-```json
-{
-  "address": "0x742d35Cc6634C0532925a3b8D238D2a8a8D8fF7C"
-}
-```
-
-### Import Existing Wallet
-**POST** `/wallet/from-private-key`
-
-Imports a wallet from an existing private key.
-
-**Request Body:**
-```json
-{
-  "private_key": "0x1234567890abcdef..."
-}
-```
-
-**Response:**
-```json
-{
-  "address": "0x742d35Cc6634C0532925a3b8D238D2a8a8D8fF7C",
-  "private_key": "0x1234567890abcdef..."
-}
-```
-
-### Check Wallet Status
-**GET** `/wallet/status`
-
-Returns the current wallet initialization status.
-
-**Response:**
-```json
-{
-  "initialized": true,
-  "address": "0x742d35Cc6634C0532925a3b8D238D2a8a8D8fF7C",
-  "message": "Wallet ready for trading"
-}
-```
-
-### Clear Wallet
-**DELETE** `/wallet/clear`
-
-Clears the wallet from memory state.
-
-**Response:**
-```json
-{
-  "message": "Wallet cleared successfully"
-}
-```
+### Private Key Management
+- Private keys are configured via environment variables
+- No wallet creation endpoints - use external wallet management
+- Private key must be set before any trading operations
 
 ---
 
@@ -408,10 +346,10 @@ All endpoints return appropriate HTTP status codes and error messages:
 }
 ```
 
-**500 Internal Server Error** - Wallet not initialized
+**500 Internal Server Error** - Private key not configured
 ```json
 {
-  "detail": "Wallet not initialized. Please call /wallet/create first."
+  "detail": "Private key not configured"
 }
 ```
 
@@ -429,21 +367,18 @@ All endpoints return appropriate HTTP status codes and error messages:
 ### Complete Trading Workflow
 
 ```bash
-# 1. Create wallet
-curl -X GET "http://localhost:8000/wallet/create"
+# 1. Set private key in environment
+export PRIVATE_KEY="0x1234567890abcdef..."
 
-# 2. Check status
-curl -X GET "http://localhost:8000/wallet/status"
-
-# 3. Get testnet USDC
+# 2. Get testnet USDC
 curl -X POST "http://localhost:8000/trading/faucet" \
   -H "Content-Type: application/json" \
   -d '{"address": "0x742d35Cc6634C0532925a3b8D238D2a8a8D8fF7C"}'
 
-# 4. Check balances
+# 3. Check balances
 curl -X GET "http://localhost:8000/trading/balances"
 
-# 5. Place a long BTC/USD order
+# 4. Place a long BTC/USD order
 curl -X POST "http://localhost:8000/trading/place-order" \
   -H "Content-Type: application/json" \
   -d '{
@@ -455,10 +390,10 @@ curl -X POST "http://localhost:8000/trading/place-order" \
     "order_type": "MARKET"
   }'
 
-# 6. Check positions
+# 5. Check positions
 curl -X GET "http://localhost:8000/trading/positions"
 
-# 7. Close position (if needed)
+# 6. Close position (if needed)
 curl -X POST "http://localhost:8000/trading/close-trade" \
   -H "Content-Type: application/json" \
   -d '{
