@@ -68,36 +68,50 @@ class WalletService:
             if not wallet:
                 raise KeyError("wallet_not_found")
 
-            # Decode the escaped hex sequences to get the actual JSON strings
-            encrypted_priv_str = bytes.fromhex(
-                wallet["encrypted_priv"].replace("\\x", "")
-            ).decode("utf-8")
-            nonce_str = bytes.fromhex(wallet["nonce"].replace("\\x", "")).decode(
-                "utf-8"
-            )
-            tag_str = bytes.fromhex(wallet["tag"].replace("\\x", "")).decode("utf-8")
+            # Get the encrypted data fields
+            encrypted_priv = wallet["encrypted_priv"]
+            nonce = wallet["nonce"]
+            tag = wallet["tag"]
 
-            # Now parse the JSON
-            encrypted_priv_json = json.loads(encrypted_priv_str)
-            nonce_json = json.loads(nonce_str)
-            tag_json = json.loads(tag_str)
+            # Handle different data formats
+            if isinstance(encrypted_priv, dict):
+                # If it's already a dict (Buffer object)
+                ciphertext = bytes(encrypted_priv["data"])
+                nonce_bytes = bytes(nonce["data"])
+                tag_bytes = bytes(tag["data"])
+            elif isinstance(encrypted_priv, str):
+                if encrypted_priv.startswith("\\x"):
+                    # Hex string format (like \\x5bdf4b1b...)
+                    ciphertext = bytes.fromhex(encrypted_priv.replace("\\x", ""))
+                    nonce_bytes = bytes.fromhex(nonce.replace("\\x", ""))
+                    tag_bytes = bytes.fromhex(tag.replace("\\x", ""))
+                else:
+                    # JSON string format
+                    if not encrypted_priv.strip():
+                        raise ValueError("encrypted_priv is empty")
+                    encrypted_priv_json = json.loads(encrypted_priv)
+                    nonce_json = json.loads(nonce)
+                    tag_json = json.loads(tag)
+                    ciphertext = bytes(encrypted_priv_json["data"])
+                    nonce_bytes = bytes(nonce_json["data"])
+                    tag_bytes = bytes(tag_json["data"])
+            else:
+                raise ValueError(
+                    f"Unexpected data type for encrypted_priv: {type(encrypted_priv)}"
+                )
 
-            # Convert Buffer data arrays to bytes
-            ciphertext = bytes(encrypted_priv_json["data"])
-            nonce = bytes(nonce_json["data"])
-            tag = bytes(tag_json["data"])
+            # Decrypt the private key
+            secret_bytes = self.cipher.dec(ciphertext, nonce_bytes, tag_bytes)
 
-            secret_bytes = self.cipher.dec(ciphertext, nonce, tag)
-
+            # Return the appropriate format
             if chain == "ETH":
                 return "0x" + secret_bytes.hex()
             else:  # SOL
                 return base64.b64encode(secret_bytes).decode()
 
-        except KeyError:
+        except KeyError as e:
             raise
         except Exception as exc:
-            print(f"Unexpected error in export_wallet: {exc}")
             raise RuntimeError(f"Failed to export wallet: {exc}") from exc
 
     def _ensure_user(
