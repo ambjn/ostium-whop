@@ -18,13 +18,13 @@ class OstiumService:
     # Class-level cache for SDKs by user_id
     _sdk_cache: Dict[str, OstiumSDK] = {}
     _address_cache: Dict[str, str] = {}
-    
+
     def __init__(
         self,
         private_key: Optional[str] = None,
         user_id: Optional[str] = None,
         verbose: bool = True,
-        network_config: NetworkConfig = NetworkConfig.mainnet(),
+        network_config: NetworkConfig = NetworkConfig.testnet(),
     ) -> None:
         self.verbose = verbose
         self.network_config = network_config
@@ -42,41 +42,49 @@ class OstiumService:
             address = self._address_cache[user_id]
             self.logger.debug("Using cached SDK for user: %s", user_id)
             return sdk, address
-            
+
         # Get private key from wallet service
         try:
             private_key = wallet_service.export_wallet(user_id, "ETH")
-            self.logger.info("Retrieved private key from wallet service for user: %s", user_id)
+            self.logger.info(
+                "Retrieved private key from wallet service for user: %s", user_id
+            )
         except Exception as e:
-            self.logger.error("Failed to get private key from wallet service for user %s: %s", user_id, e)
+            self.logger.error(
+                "Failed to get private key from wallet service for user %s: %s",
+                user_id,
+                e,
+            )
             raise ValueError(f"Failed to get private key for user {user_id}: {str(e)}")
-        
+
         # Create account and get address
         account = Account.from_key(private_key)
         address = account.address
-        
+
         # Initialize SDK
         try:
             self._patch_signed_transaction()
-            
+
             sdk = OstiumSDK(
                 network=self.network_config,
                 private_key=private_key,
                 rpc_url=self.rpc_url,
                 verbose=self.verbose,
             )
-            
+
             # Cache the SDK and address
             self._sdk_cache[user_id] = sdk
             self._address_cache[user_id] = address
-            
-            self.logger.info("Created and cached SDK for user: %s, address: %s", user_id, address)
-            
+
+            self.logger.info(
+                "Created and cached SDK for user: %s, address: %s", user_id, address
+            )
+
             if self.verbose:
                 self._check_rpc_status_for_sdk(sdk)
-                
+
             return sdk, address
-            
+
         except Exception as e:
             self.logger.error("Failed to initialize SDK for user %s: %s", user_id, e)
             raise ValueError(f"Failed to initialize SDK for user {user_id}: {str(e)}")
@@ -111,7 +119,6 @@ class OstiumService:
         self.rpc_url = os.environ.get("RPC_URL")
         if not self.rpc_url:
             raise ValueError("Missing RPC_URL environment variable")
-
 
     def check_rpc_status(self, user_id: str) -> Optional[int]:
         try:
@@ -349,7 +356,9 @@ class OstiumService:
             self.logger.error("Failed to place order: %s", e)
             return {"success": False, "error": str(e)}
 
-    async def track_order(self, user_id: str, order_id: str) -> Optional[Dict[str, Any]]:
+    async def track_order(
+        self, user_id: str, order_id: str
+    ) -> Optional[Dict[str, Any]]:
         if not order_id:
             self.logger.error("Order ID is required for tracking")
             return None
@@ -399,6 +408,7 @@ class OstiumService:
 
     async def close_trade(
         self,
+        user_id: str,
         pair_id: Any,
         trade_index: Any,
         close_percentage: int = 100,
@@ -490,9 +500,7 @@ class OstiumService:
 
             self.logger.info("Tracking order status...")
 
-            result = await sdk.ostium.track_order_and_trade(
-                sdk.subgraph, order_id
-            )
+            result = await sdk.ostium.track_order_and_trade(sdk.subgraph, order_id)
             if result and result.get("order"):
                 order = result["order"]
                 trade_id = result["order"]["tradeID"]
@@ -525,7 +533,7 @@ class OstiumService:
                     )
                 else:
                     close_datapoints = await self.close_trade_datapoints(
-                        trade_data=result
+                        user_id=user_id, trade_data=result
                     )
                     self.logger.info("Close Trade Datapoints: %s", close_datapoints)
 
@@ -823,6 +831,7 @@ class OstiumService:
 
     async def trade_data_points(
         self,
+        user_id: str,
         from_currency: str,
         to_currency: str,
         collateral: float,
@@ -830,7 +839,7 @@ class OstiumService:
         direction: bool,
     ) -> Optional[Dict[str, Any]]:
         try:
-            price_data = await self.get_price(from_currency, to_currency)
+            price_data = await self.get_price(user_id, from_currency, to_currency)
             if not price_data:
                 return {
                     "success": False,
@@ -857,6 +866,7 @@ class OstiumService:
 
     async def close_trade_datapoints(
         self,
+        user_id: str,
         trade_data: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
         try:
@@ -904,7 +914,7 @@ class OstiumService:
                     "success": True,
                 }
 
-            price_data = await self.get_price(from_currency, to_currency)
+            price_data = await self.get_price(user_id, from_currency, to_currency)
             if not price_data:
                 return {
                     "success": False,
