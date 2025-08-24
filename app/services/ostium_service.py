@@ -8,7 +8,11 @@ from eth_account import Account
 from ostium_python_sdk import NetworkConfig, OstiumSDK
 
 from app.utils.order_type import ORDER_TYPE
-from app.services.wallet_service import wallet_service
+
+try:
+    from app.services.wallet_service import wallet_service
+except ImportError:
+    wallet_service = None
 
 logger = logging.getLogger(__name__)
 load_dotenv()
@@ -18,6 +22,7 @@ class OstiumService:
     # Class-level cache for SDKs by user_id
     _sdk_cache: Dict[str, OstiumSDK] = {}
     _address_cache: Dict[str, str] = {}
+    _market_sdk: Optional[OstiumSDK] = None
 
     def __init__(
         self,
@@ -33,9 +38,14 @@ class OstiumService:
         self.trader_address: Optional[str] = None
 
         self._initialize_rpc()
+        self._market_private_key = "0x" + "1" * 64  # Simple key for market data access
 
-    def _get_or_create_sdk(self, user_id: str) -> Tuple[OstiumSDK, str]:
-        """Get cached SDK or create new one for user_id."""
+    def _get_or_create_sdk(self, user_id: Optional[str] = None) -> Tuple[OstiumSDK, str]:
+        """Get cached SDK or create new one for user_id. If user_id is None, use market SDK."""
+        # If no user_id provided, use market SDK for data access
+        if user_id is None:
+            return self._get_market_sdk()
+            
         # Check cache first
         if user_id in self._sdk_cache:
             sdk = self._sdk_cache[user_id]
@@ -44,6 +54,9 @@ class OstiumService:
             return sdk, address
 
         # Get private key from wallet service
+        if wallet_service is None:
+            raise ValueError("Wallet service not available - cannot create user SDK")
+            
         try:
             private_key = wallet_service.export_wallet(user_id, "ETH")
             self.logger.info(
@@ -120,7 +133,31 @@ class OstiumService:
         if not self.rpc_url:
             raise ValueError("Missing RPC_URL environment variable")
 
-    def check_rpc_status(self, user_id: str) -> Optional[int]:
+    def _get_market_sdk(self) -> Tuple[OstiumSDK, str]:
+        """Get or create market SDK for public data access."""
+        if self._market_sdk is not None:
+            return self._market_sdk, "0x0000000000000000000000000000000000000000"
+            
+        try:
+            self._patch_signed_transaction()
+            
+            sdk = OstiumSDK(
+                network=self.network_config,
+                private_key=self._market_private_key,
+                rpc_url=self.rpc_url,
+                verbose=self.verbose,
+            )
+            
+            self._market_sdk = sdk
+            self.logger.info("Created market SDK for public data access")
+            
+            return sdk, "0x0000000000000000000000000000000000000000"
+            
+        except Exception as e:
+            self.logger.error("Failed to initialize market SDK: %s", e)
+            raise ValueError(f"Failed to initialize market SDK: {str(e)}")
+
+    def check_rpc_status(self, user_id: Optional[str] = None) -> Optional[int]:
         try:
             block = self.get_block_number(user_id)
             if block is not None and self.verbose:
@@ -130,7 +167,7 @@ class OstiumService:
             self.logger.error("❌ RPC check failed: %s", e)
             return None
 
-    def get_block_number(self, user_id: str) -> Optional[int]:
+    def get_block_number(self, user_id: Optional[str] = None) -> Optional[int]:
         try:
             sdk, _ = self._get_or_create_sdk(user_id)
             return sdk.w3.eth.get_block_number()
@@ -138,7 +175,7 @@ class OstiumService:
             self.logger.error("Failed to get block number: %s", e)
             return None
 
-    def is_healthy(self, user_id: str) -> bool:
+    def is_healthy(self, user_id: Optional[str] = None) -> bool:
         try:
             return self.check_rpc_status(user_id) is not None
         except Exception as e:
@@ -197,7 +234,7 @@ class OstiumService:
             self.logger.error("Failed to get balances for %s: %s", address, e)
             return {"eth": 0.0, "usdc": 0.0}
 
-    async def get_latest_prices(self, user_id: str) -> Optional[List[Dict[str, Any]]]:
+    async def get_latest_prices(self, user_id: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
         try:
             sdk, _ = self._get_or_create_sdk(user_id)
             return await sdk.price.get_latest_prices()
@@ -206,7 +243,7 @@ class OstiumService:
             return None
 
     async def get_price(
-        self, user_id: str, from_currency: str, to_currency: str
+        self, user_id: Optional[str], from_currency: str, to_currency: str
     ) -> Optional[Dict[str, Any]]:
         if not from_currency or not to_currency:
             self.logger.error("Both from_currency and to_currency are required")
@@ -229,7 +266,7 @@ class OstiumService:
             )
             return None
 
-    async def get_pair_info(self, user_id: str) -> List[Dict[str, Any]]:
+    async def get_pair_info(self, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
         try:
             sdk, _ = self._get_or_create_sdk(user_id)
             return await sdk.subgraph.get_pairs()
@@ -237,7 +274,7 @@ class OstiumService:
             self.logger.error("Failed to get pair info: %s", e)
             return []
 
-    async def get_formatted_pairs_details(self, user_id: str) -> List[Dict[str, Any]]:
+    async def get_formatted_pairs_details(self, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
         try:
             sdk, _ = self._get_or_create_sdk(user_id)
             return await sdk.get_formatted_pairs_details()

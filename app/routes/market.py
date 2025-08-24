@@ -14,7 +14,7 @@ class PriceResponse(BaseModel):
 
 
 @router.get("/prices")
-async def get_latest_prices(user_id: str) -> List[Dict[str, Any]]:
+async def get_latest_prices(user_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """Get latest prices for all trading pairs"""
     try:
         ostium_service = OstiumService()
@@ -27,7 +27,7 @@ async def get_latest_prices(user_id: str) -> List[Dict[str, Any]]:
 
 
 @router.get("/price/{from_currency}/{to_currency}")
-async def get_price(from_currency: str, to_currency: str, user_id: str) -> PriceResponse:
+async def get_price(from_currency: str, to_currency: str, user_id: Optional[str] = None) -> PriceResponse:
     """Get price for a specific trading pair"""
     try:
         ostium_service = OstiumService()
@@ -40,7 +40,7 @@ async def get_price(from_currency: str, to_currency: str, user_id: str) -> Price
 
 
 @router.get("/pairs")
-async def get_trading_pairs(user_id: str) -> List[Dict[str, Any]]:
+async def get_trading_pairs(user_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """Get available trading pairs information"""
     try:
         ostium_service = OstiumService()
@@ -51,7 +51,7 @@ async def get_trading_pairs(user_id: str) -> List[Dict[str, Any]]:
 
 
 @router.get("/pairs/detailed")
-async def get_detailed_pairs(user_id: str) -> List[Dict[str, Any]]:
+async def get_detailed_pairs(user_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """Get detailed information about trading pairs"""
     try:
         ostium_service = OstiumService()
@@ -62,7 +62,7 @@ async def get_detailed_pairs(user_id: str) -> List[Dict[str, Any]]:
 
 
 @router.get("/overview")
-async def get_market_overview(user_id: str) -> Dict[str, Any]:
+async def get_market_overview(user_id: Optional[str] = None) -> Dict[str, Any]:
     """Get market overview with key metrics"""
     try:
         ostium_service = OstiumService()
@@ -87,7 +87,7 @@ async def get_market_overview(user_id: str) -> Dict[str, Any]:
 
 
 @router.get("/status")
-async def get_market_status(user_id: str) -> Dict[str, Any]:
+async def get_market_status(user_id: Optional[str] = None) -> Dict[str, Any]:
     """Get market status information"""
     try:
         ostium_service = OstiumService()
@@ -106,7 +106,7 @@ async def get_market_status(user_id: str) -> Dict[str, Any]:
 
 
 @router.get("/currencies")
-async def get_supported_currencies(user_id: str) -> Dict[str, List[str]]:
+async def get_supported_currencies(user_id: Optional[str] = None) -> Dict[str, List[str]]:
     """Get list of supported currencies"""
     try:
         ostium_service = OstiumService()
