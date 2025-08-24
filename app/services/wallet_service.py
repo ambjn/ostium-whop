@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import os
 import secrets
 from typing import Any, Dict, Optional
@@ -53,7 +54,7 @@ class WalletService:
             raise RuntimeError("MASTER_KEY env variable not set")
         self.cipher = _AESCipher(base64.b64decode(master_b64))
 
-    def export_wallet(self, user_id: int, chain: str) -> str:
+    def export_wallet(self, user_id: str, chain: str) -> str:
         """Return decrypted private key for an existing ETH/SOL wallet."""
         user_id = self._ensure_user(user_id)
         chain = chain.upper()
@@ -67,12 +68,26 @@ class WalletService:
             if not wallet:
                 raise KeyError("wallet_not_found")
 
-            secret_bytes = self.cipher.dec(
-                ciphertext=bytes.fromhex(wallet["encrypted_priv"][2:]),
-                nonce=bytes.fromhex(wallet["nonce"][2:]),
-                tag=bytes.fromhex(wallet["tag"][2:]),
+            # Decode the escaped hex sequences to get the actual JSON strings
+            encrypted_priv_str = bytes.fromhex(
+                wallet["encrypted_priv"].replace("\\x", "")
+            ).decode("utf-8")
+            nonce_str = bytes.fromhex(wallet["nonce"].replace("\\x", "")).decode(
+                "utf-8"
             )
-            print("NANANANA")
+            tag_str = bytes.fromhex(wallet["tag"].replace("\\x", "")).decode("utf-8")
+
+            # Now parse the JSON
+            encrypted_priv_json = json.loads(encrypted_priv_str)
+            nonce_json = json.loads(nonce_str)
+            tag_json = json.loads(tag_str)
+
+            # Convert Buffer data arrays to bytes
+            ciphertext = bytes(encrypted_priv_json["data"])
+            nonce = bytes(nonce_json["data"])
+            tag = bytes(tag_json["data"])
+
+            secret_bytes = self.cipher.dec(ciphertext, nonce, tag)
 
             if chain == "ETH":
                 return "0x" + secret_bytes.hex()
@@ -117,6 +132,31 @@ class WalletService:
             .execute()
         )
         return wallets.data[0] if wallets.data else None
+
+    def debug_wallet_data(self, user_id: int, chain: str):
+        """Debug helper to inspect wallet data"""
+        user_id = self._ensure_user(user_id)
+        chain_db = "ethereum" if chain.upper() == "ETH" else "solana"
+        wallet = self._get_wallet_by_chain(user_id, chain_db)
+
+        if wallet:
+            print(f"encrypted_priv: {wallet['encrypted_priv']}")
+            print(f"nonce: {wallet['nonce']}")
+            print(f"tag: {wallet['tag']}")
+            print(
+                f"encrypted_priv length after hex decode: {len(bytes.fromhex(wallet['encrypted_priv'][2:]))}"
+            )
+            print(
+                f"nonce length after hex decode: {len(bytes.fromhex(wallet['nonce'][2:]))}"
+            )
+            print(
+                f"tag length after hex decode: {len(bytes.fromhex(wallet['tag'][2:]))}"
+            )
+            # Add this to debug
+            print(f"MASTER_KEY present: {bool(os.getenv('MASTER_KEY'))}")
+            print(
+                f"MASTER_KEY length: {len(base64.b64decode(os.getenv('MASTER_KEY'))) if os.getenv('MASTER_KEY') else 0}"
+            )
 
 
 wallet_service = WalletService()
