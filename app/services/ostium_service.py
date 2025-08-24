@@ -24,7 +24,7 @@ class OstiumService:
         private_key: Optional[str] = None,
         user_id: Optional[str] = None,
         verbose: bool = True,
-        network_config: NetworkConfig = NetworkConfig.testnet(),
+        network_config: NetworkConfig = NetworkConfig.mainnet(),
     ) -> None:
         self.verbose = verbose
         self.network_config = network_config
