@@ -3,3 +3,8 @@ uvicorn
 python-dotenv
 ostium-python-sdk
 eth-account
+supabase
+cryptography
+httpx
+solders
+postgrest
